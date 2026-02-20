@@ -1,2 +1,3 @@
 # attn-arena
-Unified PyTorch implementations and benchmarks of MHA, MQA, GQA, MLA, GTA, and GLA on consumer multi-GPU setup using FlashAttention 2 backend.
+
+Unified PyTorch implementations and systematic benchmarks of hardware efficient attention variants for LLM inference on consumer single and multi GPU setups, built on FlashAttention 2.
