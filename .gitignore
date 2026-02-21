@@ -1,0 +1,45 @@
+# Python bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Packaging
+build/
+dist/
+*.egg-info/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Tool caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# OS/editor
+.DS_Store
+.vscode/
+.idea/
+
+# Local config
+.env
+.env.*
+
+# Results and artifacts
+results/*
+!results/.gitignore
+
+# CUDA/profiler artifacts
+*.nsys-rep
+*.qdrep
+*.sqlite
+
+# Logs
+*.log
