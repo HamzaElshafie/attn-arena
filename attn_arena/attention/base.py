@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal, Optional, Protocol, Tuple, runtime_checkable
+from typing import Literal, Protocol, runtime_checkable
 
 import torch
 
@@ -67,16 +67,16 @@ class AttentionModule(Protocol):
     def prefill(
         self,
         hidden_states: torch.Tensor,
-        position_embeddings: Tuple[torch.Tensor, torch.Tensor],
-        attention_mask: Optional[torch.Tensor],
-        kv_cache: Optional[KVCache] = None,
-        cache_position: Optional[torch.LongTensor] = None,
+        position_embeddings: tuple[torch.Tensor, torch.Tensor],
+        attention_mask: torch.Tensor | None,
+        kv_cache: KVCache | None = None,
+        cache_position: torch.LongTensor | None = None,
     ) -> AttentionOutput: ...
 
     def decode(
         self,
         hidden_states: torch.Tensor,
-        position_embeddings: Tuple[torch.Tensor, torch.Tensor],
+        position_embeddings: tuple[torch.Tensor, torch.Tensor],
         kv_cache: KVCache,
         cache_position: torch.LongTensor,
     ) -> AttentionOutput: ...
@@ -89,4 +89,4 @@ class AttentionModule(Protocol):
         dtype: torch.dtype,
     ) -> KVCache: ...
 
-    def shard(self, tp_rank: int, tp_world_size: int) -> "AttentionModule": ...
+    def shard(self, tp_rank: int, tp_world_size: int) -> AttentionModule: ...

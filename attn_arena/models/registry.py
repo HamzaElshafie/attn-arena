@@ -7,7 +7,7 @@ from attn_arena.models.base import ModelBackbone
 
 TModel = TypeVar("TModel", bound=ModelBackbone)
 
-_MODEL_REGISTRY: dict[str, type[Any]] = {}
+_MODEL_REGISTRY: dict[str, Callable[..., ModelBackbone]] = {}
 
 
 def register_model(name: str) -> Callable[[type[TModel]], type[TModel]]:

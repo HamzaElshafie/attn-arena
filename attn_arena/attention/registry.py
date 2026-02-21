@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any, TypeVar
+from typing import Any, TypeVar, cast
 
 from attn_arena.attention.base import AttentionModule
 
@@ -46,7 +46,7 @@ def get_attention(name: str, /, **kwargs: Any) -> AttentionModule:
         available = ", ".join(sorted(_ATTENTION_REGISTRY.keys()))
         raise KeyError(f"unknown attention '{name}'. available: [{available}]") from exc
 
-    return attention_cls(**kwargs)
+    return cast(AttentionModule, attention_cls(**kwargs))
 
 
 def list_attentions() -> tuple[str, ...]:

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Optional, Protocol, Tuple, runtime_checkable
+from typing import Protocol, runtime_checkable
 
 import torch
 
@@ -18,9 +18,9 @@ class ModelBackbone(Protocol):
         self,
         input_ids: torch.LongTensor,
         position_ids: torch.LongTensor,
-        kv_caches: Optional[list[KVCache]] = None,
-        attention_mask: Optional[torch.Tensor] = None,
-        cache_position: Optional[torch.LongTensor] = None,
+        kv_caches: list[KVCache] | None = None,
+        attention_mask: torch.Tensor | None = None,
+        cache_position: torch.LongTensor | None = None,
     ) -> torch.Tensor:
         """Run model forward and return logits."""
 
@@ -28,8 +28,8 @@ class ModelBackbone(Protocol):
         self,
         position_ids: torch.LongTensor,
         seq_len: int,
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         """Return RoPE coefficients as `(cos, sin)` for the provided positions."""
 
-    def shard(self, tp_rank: int, tp_world_size: int) -> "ModelBackbone":
+    def shard(self, tp_rank: int, tp_world_size: int) -> ModelBackbone:
         """Return a new model instance configured for tensor-parallel rank."""

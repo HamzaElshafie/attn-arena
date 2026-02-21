@@ -71,6 +71,7 @@ strict_equality = true
 [tool.pytest.ini_options]
 addopts = "-ra"
 testpaths = ["tests"]
+pythonpath = ["."]
 markers = [
   "gpu: marks tests that require CUDA-capable GPU",
   "integration: marks end-to-end integration tests",
