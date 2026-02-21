@@ -6,11 +6,6 @@ Describe what this PR changes and why.
 
 What problem does this PR solve?
 
-## Scope
-
-- In scope:
-- Out of scope:
-
 ## Implementation
 
 List the main technical changes.

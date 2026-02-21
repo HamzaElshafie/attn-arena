@@ -23,18 +23,25 @@ classifiers = [
   "Programming Language :: Python :: 3.11",
   "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
-dependencies = []
+dependencies = [
+  "torch>=2.0.0",
+  "pydantic>=2.0",
+  "transformers>=4.36.0",
+]
 
 [project.optional-dependencies]
 dev = [
-  "pre-commit==4.1.0",
-  "ruff==0.9.2",
-  "mypy==1.11.2",
+  "pre-commit>=4.1.0",
+  "ruff>=0.9.2",
+  "mypy>=1.11.2",
 ]
 test = [
-  "pytest==8.3.4",
-  "pytest-cov==6.0.0",
+  "pytest>=8.3.0",
+  "pytest-cov>=6.0.0",
 ]
+
+[tool.uv]
+# Use `uv sync` for runtime deps; `uv sync --extra dev --extra test` for full dev env.
 
 [tool.hatch.build.targets.wheel]
 packages = ["attn_arena"]
@@ -64,6 +71,7 @@ strict_equality = true
 [tool.pytest.ini_options]
 addopts = "-ra"
 testpaths = ["tests"]
+pythonpath = ["."]
 markers = [
   "gpu: marks tests that require CUDA-capable GPU",
   "integration: marks end-to-end integration tests",

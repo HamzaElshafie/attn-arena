@@ -1,0 +1,6 @@
+# Base + test tooling (pytest, pytest-cov). Sync with [project.optional-dependencies].test.
+# Install: uv pip install -r requirements/test.txt && uv pip install -e ".[test]"
+# Or: uv sync --extra test (or --extra dev --extra test for full dev).
+-r base.txt
+pytest>=8.3.0
+pytest-cov>=6.0.0
