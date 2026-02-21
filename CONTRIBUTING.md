@@ -2,6 +2,16 @@
 
 This repository follows a professional, PR-first workflow even when its only me at the moment 😅.
 
+## Development setup
+
+The project uses [uv](https://docs.astral.sh/uv/) for dependency management. Install uv, then from the repo root:
+
+```bash
+uv sync --extra dev --extra test
+```
+
+This installs the package in editable mode with all dev and test dependencies. For runtime-only (e.g. Docker): `uv sync`. Optional requirement files in `requirements/` mirror `pyproject.toml` for environments that install from txt (e.g. `uv pip install -r requirements/dev.txt` then `uv pip install -e ".[dev]"`).
+
 ## Workflow Principles
 
 - Every meaningful change is made on a branch and merged via pull request.
