@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 from attn_arena.attention.base import AttentionModule, KVCache
 from attn_arena.models.llama.config import LlamaConfig
@@ -16,14 +17,24 @@ class RMSNorm(nn.Module):
         return (x_norm * self.weight).type_as(x)
 
 class FeedForward(nn.Module):
-    pass
+    def __init__(self, config: LlamaConfig) -> None:
+        super().__init__()
+        self.dim = config.dim
+        self.intermediate_size = config.intermediate_size
+
+        self.w = nn.Linear(self.dim, self.intermediate_size, bias=False)
+        self.v = nn.Linear(self.dim, self.intermediate_size, bias=False)
+        self.w2 = nn.Linear(self.intermediate_size, self.dim, bias=False)
+    
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.w2(F.silu(self.w(x)) * self.v(x))
 
 class TransformerBlock(nn.Module):
     def __init__(self, config: LlamaConfig) -> None:
         super().__init__()
         self.config = config
         self.attention: AttentionModule | None = None
-        self.ffn = FeedForward() #TODO Add args
+        self.ffn = FeedForward(config)
         self.attn_norm = RMSNorm(config)
         self.ffn_norm = RMSNorm(config)
 
