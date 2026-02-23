@@ -11,7 +11,7 @@ CacheType = Literal["full_kv", "latent", "tied"]
 @dataclass(frozen=True)
 class AttentionCapabilities:
     """Static feature flags describing an attention variant."""
-
+    
     supports_prefill: bool
     supports_decode: bool
     supports_tensor_parallel: bool
