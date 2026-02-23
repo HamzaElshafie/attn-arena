@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional
 
 
 @dataclass(frozen=True)
@@ -9,11 +8,11 @@ class LlamaConfig:
     dim: int = 4096
     n_layers: int = 32
     n_heads: int = 32
-    n_kv_heads: Optional[int] = None
+    n_kv_heads: int | None = None
     vocab_size: int = 201088  # TODO: derive from tokenizer/checkpoint (current is dummy)
 
     multiple_of: int = 256
-    ffn_dim_multiplier: Optional[float] = None
+    ffn_dim_multiplier: float | None = None
 
     norm_eps: float = 1e-5
     rope_theta: float = 500000
@@ -55,4 +54,4 @@ class LlamaConfig:
             hidden_dim = int(hidden_dim * self.ffn_dim_multiplier)
         return self.multiple_of * ((hidden_dim + self.multiple_of - 1) // self.multiple_of)
 
-    
+

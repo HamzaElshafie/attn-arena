@@ -4,13 +4,15 @@ import torch.nn.functional as F
 
 from attn_arena.attention.base import AttentionModule, KVCache
 from attn_arena.models.llama.config import LlamaConfig
+from attn_arena.models.registry import register_model
+
 
 class RMSNorm(nn.Module):
     def __init__(self, config: LlamaConfig) -> None:
         super().__init__()
         self.eps = config.norm_eps
         self.weight = nn.Parameter(torch.ones(config.dim))
-    
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x_fp32 = x.float()
         x_norm = x_fp32 * torch.rsqrt(x_fp32.pow(2).mean(dim=-1, keepdim=True) + self.eps)
@@ -25,9 +27,11 @@ class FeedForward(nn.Module):
         self.w = nn.Linear(self.dim, self.intermediate_size, bias=False)
         self.v = nn.Linear(self.dim, self.intermediate_size, bias=False)
         self.w2 = nn.Linear(self.intermediate_size, self.dim, bias=False)
-    
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.w2(F.silu(self.w(x)) * self.v(x))
+        out = self.w2(F.silu(self.w(x)) * self.v(x))
+        assert isinstance(out, torch.Tensor)
+        return out
 
 class TransformerBlock(nn.Module):
     def __init__(self, config: LlamaConfig) -> None:
@@ -79,6 +83,7 @@ class TransformerBlock(nn.Module):
         return x
 
 
+@register_model("llama3")
 class LlamaBackbone(nn.Module):
     def __init__(self, config: LlamaConfig) -> None:
         super().__init__()
@@ -90,7 +95,7 @@ class LlamaBackbone(nn.Module):
         self._rope_cos_cache: torch.Tensor | None = None
         self._rope_sin_cache: torch.Tensor | None = None
         self._rope_cache_device: torch.device | None = None
-        
+
         self.embedding = nn.Embedding(self.vocab_size, self.dim)
         self.norm = RMSNorm(config)
         self.unembedding = nn.Linear(self.dim, self.vocab_size, bias=False)
@@ -102,9 +107,10 @@ class LlamaBackbone(nn.Module):
     def set_attention(self, attention: AttentionModule) -> None:
         if self.attention is not None:
             raise ValueError("Attention already set on LlamaBackbone.")
-            
+
         self.attention = attention
         for layer in self.layers:
+            assert isinstance(layer, TransformerBlock)
             layer.set_attention(attention)
 
     def get_rope_cos_sin(
@@ -139,13 +145,34 @@ class LlamaBackbone(nn.Module):
         cos = self._rope_cos_cache[position_ids]
         sin = self._rope_sin_cache[position_ids]
         return cos.unsqueeze(2), sin.unsqueeze(2)
-        
+
     def shard(self, tp_rank: int, tp_world_size: int) -> "LlamaBackbone":
         """Return a new model instance configured for tensor-parallel rank."""
         _ = tp_rank
         if tp_world_size == 1:
             return self
         raise NotImplementedError("Tensor parallel sharding is not implemented yet.")
+
+    def _build_attention_mask(
+        self,
+        batch_size: int,
+        seq_len: int,
+        device: torch.device,
+        dtype: torch.dtype,
+        cache_position: torch.LongTensor | None = None,
+    ) -> torch.Tensor:
+        if cache_position is not None and cache_position.numel() > 0:
+            start_pos = int(cache_position.min().item())
+        else:
+            start_pos = 0
+
+        key_len = start_pos + seq_len
+        min_value = torch.finfo(dtype).min
+        mask = torch.triu(
+            torch.full((seq_len, key_len), min_value, device=device, dtype=dtype),
+            diagonal=start_pos + 1,
+        )
+        return mask.unsqueeze(0).unsqueeze(0).expand(batch_size, 1, seq_len, key_len)
 
     def forward(
         self,
@@ -158,15 +185,27 @@ class LlamaBackbone(nn.Module):
         if self.attention is None:
             raise ValueError("Attention must be set before calling forward.")
 
-        _, seq_len = input_ids.shape
+        batch_size, seq_len = input_ids.shape
         if kv_caches is not None and len(kv_caches) != len(self.layers):
             raise ValueError("kv_caches length must match number of layers.")
 
-        caches = kv_caches or [None] * len(self.layers)
+        if kv_caches is None:
+            caches: tuple[KVCache | None, ...] = tuple([None] * len(self.layers))
+        else:
+            caches = tuple(kv_caches)
         position_embeddings = self.get_rope_cos_sin(position_ids, seq_len)
         x = self.embedding(input_ids)
+        if attention_mask is None:
+            attention_mask = self._build_attention_mask(
+                batch_size=batch_size,
+                seq_len=seq_len,
+                device=x.device,
+                dtype=x.dtype,
+                cache_position=cache_position,
+            )
 
-        for layer, cache in zip(self.layers, caches):
+        for layer, cache in zip(self.layers, caches, strict=False):
+            assert isinstance(layer, TransformerBlock)
             x = layer(
                 x=x,
                 position_embeddings=position_embeddings,
@@ -174,7 +213,8 @@ class LlamaBackbone(nn.Module):
                 kv_cache=cache,
                 cache_position=cache_position,
             )
-            
+
         x = self.norm(x)
         out = self.unembedding(x)
+        assert isinstance(out, torch.Tensor)
         return out
