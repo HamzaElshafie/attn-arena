@@ -18,6 +18,7 @@ class RMSNorm(nn.Module):
         x_norm = x_fp32 * torch.rsqrt(x_fp32.pow(2).mean(dim=-1, keepdim=True) + self.eps)
         return (x_norm * self.weight).type_as(x)
 
+
 class FeedForward(nn.Module):
     def __init__(self, config: LlamaConfig) -> None:
         super().__init__()
@@ -32,6 +33,7 @@ class FeedForward(nn.Module):
         out = self.w2(F.silu(self.w(x)) * self.v(x))
         assert isinstance(out, torch.Tensor)
         return out
+
 
 class TransformerBlock(nn.Module):
     def __init__(self, config: LlamaConfig) -> None:

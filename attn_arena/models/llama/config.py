@@ -53,5 +53,3 @@ class LlamaConfig:
         if self.ffn_dim_multiplier is not None:
             hidden_dim = int(hidden_dim * self.ffn_dim_multiplier)
         return self.multiple_of * ((hidden_dim + self.multiple_of - 1) // self.multiple_of)
-
-

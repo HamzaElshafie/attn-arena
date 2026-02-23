@@ -155,7 +155,9 @@ class MultiHeadAttention(nn.Module):
 
         if kv_cache is not None:
             if cache_position is None:
-                raise ValueError("cache_position must be provided when kv_cache is used in prefill.")
+                raise ValueError(
+                    "cache_position must be provided when kv_cache is used in prefill."
+                )
             new_kv = torch.stack([k, v], dim=0)
             kv_cache.update(new_kv, layer_idx=0, position=cache_position)
             kv = kv_cache.get(layer_idx=0)
