@@ -1,7 +1,5 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-from typing import Optional
 
 from attn_arena.attention.base import AttentionModule, KVCache
 from attn_arena.models.llama.config import LlamaConfig
@@ -21,23 +19,54 @@ class FeedForward(nn.Module):
     pass
 
 class TransformerBlock(nn.Module):
-    pass
+    def __init__(self, config: LlamaConfig) -> None:
+        super().__init__()
+        self.config = config
+        self.attention: AttentionModule | None = None
+
+    def set_attention(self, attention: AttentionModule) -> None:
+        self.attention = attention
+
+    def forward(
+        self,
+        x: torch.Tensor,
+        position_embeddings: tuple[torch.Tensor, torch.Tensor],
+        attention_mask: torch.Tensor | None = None,
+        kv_cache: KVCache | None = None,
+        cache_position: torch.LongTensor | None = None,
+    ) -> torch.Tensor:
+        _ = (x, position_embeddings, attention_mask, kv_cache, cache_position)
+        if self.attention is None:
+            raise ValueError("Attention must be set on TransformerBlock before forward.")
+        raise NotImplementedError("TransformerBlock.forward is not implemented yet.")
 
 class LlamaBackbone(nn.Module):
     def __init__(self, config: LlamaConfig) -> None:
         super().__init__()
         self.config = config
-        self.attention = AttentionModule | None = None
+        self.vocab_size = config.vocab_size
+        self.dim = config.dim
+        self.attention: AttentionModule | None = None
         self._rope_cache_len = 0
         self._rope_cos_cache: torch.Tensor | None = None
         self._rope_sin_cache: torch.Tensor | None = None
         self._rope_cache_device: torch.device | None = None
         
+        self.embedding = nn.Embedding(self.vocab_size, self.dim)
+        self.norm = RMSNorm(config)
+        self.unembedding = nn.Linear(self.dim, self.vocab_size, bias=False)
+
+        self.layers = nn.ModuleList()
+        for _ in range(config.n_layers):
+            self.layers.append(TransformerBlock(config))
 
     def set_attention(self, attention: AttentionModule) -> None:
         if self.attention is not None:
             raise ValueError("Attention already set on LlamaBackbone.")
+            
         self.attention = attention
+        for layer in self.layers:
+            layer.set_attention(attention)
 
     def get_rope_cos_sin(
         self,
@@ -73,7 +102,40 @@ class LlamaBackbone(nn.Module):
         return cos.unsqueeze(2), sin.unsqueeze(2)
         
     def shard(self, tp_rank: int, tp_world_size: int) -> "LlamaBackbone":
-      """Return a new model instance configured for tensor-parallel rank."""
+        """Return a new model instance configured for tensor-parallel rank."""
+        _ = tp_rank
+        if tp_world_size == 1:
+            return self
+        raise NotImplementedError("Tensor parallel sharding is not implemented yet.")
 
-    def forward(self, x: torch.Tensor):
-        pass
+    def forward(
+        self,
+        input_ids: torch.LongTensor,
+        position_ids: torch.LongTensor,
+        kv_caches: list[KVCache] | None = None,
+        attention_mask: torch.Tensor | None = None,
+        cache_position: torch.LongTensor | None = None,
+    ) -> torch.Tensor:
+        if self.attention is None:
+            raise ValueError("Attention must be set before calling forward.")
+
+        _, seq_len = input_ids.shape
+        if kv_caches is not None and len(kv_caches) != len(self.layers):
+            raise ValueError("kv_caches length must match number of layers.")
+
+        caches = kv_caches or [None] * len(self.layers)
+        position_embeddings = self.get_rope_cos_sin(position_ids, seq_len)
+        x = self.embedding(input_ids)
+
+        for layer, cache in zip(self.layers, caches):
+            x = layer(
+                x=x,
+                position_embeddings=position_embeddings,
+                attention_mask=attention_mask,
+                kv_cache=cache,
+                cache_position=cache_position,
+            )
+            
+        x = self.norm(x)
+        out = self.unembedding(x)
+        return out
