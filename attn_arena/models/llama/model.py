@@ -23,6 +23,9 @@ class TransformerBlock(nn.Module):
         super().__init__()
         self.config = config
         self.attention: AttentionModule | None = None
+        self.ffn = FeedForward() #TODO Add args
+        self.attn_norm = RMSNorm(config)
+        self.ffn_norm = RMSNorm(config)
 
     def set_attention(self, attention: AttentionModule) -> None:
         self.attention = attention
@@ -35,10 +38,35 @@ class TransformerBlock(nn.Module):
         kv_cache: KVCache | None = None,
         cache_position: torch.LongTensor | None = None,
     ) -> torch.Tensor:
-        _ = (x, position_embeddings, attention_mask, kv_cache, cache_position)
         if self.attention is None:
             raise ValueError("Attention must be set on TransformerBlock before forward.")
-        raise NotImplementedError("TransformerBlock.forward is not implemented yet.")
+
+        residual = x
+        x_norm = self.attn_norm(x)
+
+        if kv_cache is not None and x.shape[1] == 1 and cache_position is not None:
+            attn_output = self.attention.decode(
+                hidden_states=x_norm,
+                position_embeddings=position_embeddings,
+                kv_cache=kv_cache,
+                cache_position=cache_position,
+            ).output
+        else:
+            attn_output = self.attention.prefill(
+                hidden_states=x_norm,
+                position_embeddings=position_embeddings,
+                attention_mask=attention_mask,
+                kv_cache=kv_cache,
+                cache_position=cache_position,
+            ).output
+
+        x = residual + attn_output
+
+        residual = x
+        x_norm = self.ffn_norm(x)
+        x = residual + self.ffn(x_norm)
+        return x
+
 
 class LlamaBackbone(nn.Module):
     def __init__(self, config: LlamaConfig) -> None:
