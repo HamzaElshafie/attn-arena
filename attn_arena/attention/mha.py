@@ -241,3 +241,14 @@ class MultiHeadAttention(nn.Module):
         if tp_world_size == 1:
             return self
         raise NotImplementedError("Tensor parallel sharding is not implemented yet.")
+
+
+class MHAFactory:
+    """Create a fresh MHA module per layer to avoid parameter sharing."""
+
+    def __init__(self, config: LlamaConfig) -> None:
+        self.config = config
+
+    def create(self, layer_idx: int) -> AttentionModule:
+        _ = layer_idx
+        return MultiHeadAttention(self.config)

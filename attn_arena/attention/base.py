@@ -29,6 +29,20 @@ class AttentionOutput:
 
 
 @runtime_checkable
+class AttentionFactory(Protocol):
+    """Factory for creating per-layer attention modules.
+
+    Backbones use this protocol to instantiate one attention module per
+    transformer layer, avoiding accidental parameter sharing across layers.
+    Implementations may return the same attention variant for every layer or
+    choose different variants/configurations based on `layer_idx`.
+    """
+
+    def create(self, layer_idx: int) -> AttentionModule:
+        """Create the attention module instance for `layer_idx`."""
+
+
+@runtime_checkable
 class KVCache(Protocol):
     """Variant-owned KV cache interface.
 
