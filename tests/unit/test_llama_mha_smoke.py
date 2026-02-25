@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import torch
 
-from attn_arena.attention.mha import MultiHeadAttention
+from attn_arena.attention.mha import MHAFactory, MultiHeadAttention
 from attn_arena.models.llama.config import LlamaConfig
-from attn_arena.models.llama.model import LlamaBackbone
+from attn_arena.models.llama.model import LlamaBackbone, TransformerBlock
 
 
 def _tiny_llama_config() -> LlamaConfig:
@@ -104,8 +104,18 @@ def test_mha_decode_grows_kv_cache() -> None:
 def test_llama_backbone_with_mha_smoke() -> None:
     config = _tiny_llama_config()
     model = LlamaBackbone(config)
-    attention = MultiHeadAttention(config)
-    model.set_attention(attention)
+    model.set_attention(MHAFactory(config))
+
+    layer0 = model.layers[0]
+    layer1 = model.layers[1]
+    assert isinstance(layer0, TransformerBlock)
+    assert isinstance(layer1, TransformerBlock)
+    assert layer0 is not layer1
+    assert layer0.attention is not None
+    assert layer1.attention is not None
+    assert isinstance(layer0.attention, MultiHeadAttention)
+    assert isinstance(layer1.attention, MultiHeadAttention)
+    assert layer0.attention.wq.weight.data_ptr() != layer1.attention.wq.weight.data_ptr()
 
     batch_size = 2
     seq_len = 5

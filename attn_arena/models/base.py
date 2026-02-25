@@ -4,14 +4,14 @@ from typing import Protocol, runtime_checkable
 
 import torch
 
-from attn_arena.attention.base import AttentionModule, KVCache
+from attn_arena.attention.base import AttentionFactory, KVCache
 
 
 @runtime_checkable
 class ModelBackbone(Protocol):
     """Backbone contract for decoder-only model families."""
 
-    def set_attention(self, attention: AttentionModule) -> None:
+    def set_attention(self, attention_factory: AttentionFactory) -> None:
         """Inject the attention implementation used by this backbone."""
 
     def get_rope_cos_sin(

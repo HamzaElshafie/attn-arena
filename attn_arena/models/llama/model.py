@@ -1,8 +1,10 @@
+from __future__ import annotations
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from attn_arena.attention.base import AttentionModule, KVCache
+from attn_arena.attention.base import AttentionFactory, AttentionModule, KVCache
 from attn_arena.models.llama.config import LlamaConfig
 from attn_arena.models.registry import register_model
 
@@ -92,7 +94,7 @@ class LlamaBackbone(nn.Module):
         self.config = config
         self.vocab_size = config.vocab_size
         self.dim = config.dim
-        self.attention: AttentionModule | None = None
+        self.attention_factory: AttentionFactory | None = None
         self._rope_cache_len = 0
         self._rope_cos_cache: torch.Tensor | None = None
         self._rope_sin_cache: torch.Tensor | None = None
@@ -106,14 +108,14 @@ class LlamaBackbone(nn.Module):
         for _ in range(config.n_layers):
             self.layers.append(TransformerBlock(config))
 
-    def set_attention(self, attention: AttentionModule) -> None:
-        if self.attention is not None:
+    def set_attention(self, attention_factory: AttentionFactory) -> None:
+        if self.attention_factory is not None:
             raise ValueError("Attention already set on LlamaBackbone.")
 
-        self.attention = attention
-        for layer in self.layers:
+        self.attention_factory = attention_factory
+        for i, layer in enumerate(self.layers):
             assert isinstance(layer, TransformerBlock)
-            layer.set_attention(attention)
+            layer.set_attention(attention_factory.create(i))
 
     def get_rope_cos_sin(
         self,
@@ -148,7 +150,7 @@ class LlamaBackbone(nn.Module):
         sin = self._rope_sin_cache[position_ids]
         return cos.unsqueeze(2), sin.unsqueeze(2)
 
-    def shard(self, tp_rank: int, tp_world_size: int) -> "LlamaBackbone":
+    def shard(self, tp_rank: int, tp_world_size: int) -> LlamaBackbone:
         """Return a new model instance configured for tensor-parallel rank."""
         _ = tp_rank
         if tp_world_size == 1:
@@ -184,7 +186,7 @@ class LlamaBackbone(nn.Module):
         attention_mask: torch.Tensor | None = None,
         cache_position: torch.LongTensor | None = None,
     ) -> torch.Tensor:
-        if self.attention is None:
+        if self.attention_factory is None:
             raise ValueError("Attention must be set before calling forward.")
 
         batch_size, seq_len = input_ids.shape
