@@ -85,4 +85,3 @@ def test_run_prefill_decode_benchmark_smoke() -> None:
     assert result.decode.elapsed_seconds >= 0.0
     assert result.total_elapsed_seconds >= 0.0
     assert result.kv_cache_bytes > 0
-

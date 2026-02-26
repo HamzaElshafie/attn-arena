@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
+from typing import cast
+
 import torch
 
 from attn_arena.attention.base import KVCache
 from attn_arena.models.base import ModelBackbone
+
 
 @dataclass(frozen=True)
 class SyntheticTokenSpec:
@@ -71,6 +74,10 @@ class InferenceBenchmarkResult:
         return self.total_tokens / self.total_elapsed_seconds
 
 
+DEFAULT_BENCHMARK_RUN_CONFIG = BenchmarkRunConfig()
+DEFAULT_SYNTHETIC_TOKEN_SPEC = SyntheticTokenSpec()
+
+
 def make_synthetic_input_ids(
     *,
     batch_size: int,
@@ -101,7 +108,7 @@ def make_synthetic_input_ids(
     )
     if spec.offset:
         tokens = (tokens + spec.offset) % vocab_size
-    return tokens.to(device=device)
+    return cast(torch.LongTensor, tokens.to(device=device))
 
 
 def build_position_ids(
@@ -121,7 +128,7 @@ def build_position_ids(
         dtype=torch.long,
         device=device,
     )
-    return positions.unsqueeze(0).expand(batch_size, -1)
+    return cast(torch.LongTensor, positions.unsqueeze(0).expand(batch_size, -1))
 
 
 def init_kv_caches_for_model(
@@ -190,7 +197,10 @@ def _run_prefill_once(
         start_position=0,
         device=device,
     )
-    cache_position = torch.arange(seq_len, dtype=torch.long, device=device)
+    cache_position = cast(
+        torch.LongTensor,
+        torch.arange(seq_len, dtype=torch.long, device=device),
+    )
     return model.forward(
         input_ids=input_ids,
         position_ids=position_ids,
@@ -228,10 +238,13 @@ def _run_decode_once(
             start_position=kv_caches[0].current_seq_len(),
             device=device,
         )
-        cache_position = torch.tensor(
-            [kv_caches[0].current_seq_len()],
-            dtype=torch.long,
-            device=device,
+        cache_position = cast(
+            torch.LongTensor,
+            torch.tensor(
+                [kv_caches[0].current_seq_len()],
+                dtype=torch.long,
+                device=device,
+            ),
         )
         last_logits = model.forward(
             input_ids=input_ids,
@@ -249,8 +262,8 @@ def run_prefill_decode_benchmark(
     *,
     model: ModelBackbone,
     workload: BenchmarkWorkload,
-    run_config: BenchmarkRunConfig = BenchmarkRunConfig(),
-    token_spec: SyntheticTokenSpec = SyntheticTokenSpec(),
+    run_config: BenchmarkRunConfig | None = None,
+    token_spec: SyntheticTokenSpec | None = None,
 ) -> InferenceBenchmarkResult:
     """Run deterministic prefill+decode benchmarking on a backbone.
 
@@ -258,6 +271,11 @@ def run_prefill_decode_benchmark(
     tokenizer. It uses synthetic tokens to exercise the inference path and KV
     cache behavior under controlled workloads.
     """
+
+    if run_config is None:
+        run_config = DEFAULT_BENCHMARK_RUN_CONFIG
+    if token_spec is None:
+        token_spec = DEFAULT_SYNTHETIC_TOKEN_SPEC
 
     if workload.prefill_len <= 0:
         raise ValueError("workload.prefill_len must be > 0.")
