@@ -9,7 +9,7 @@ class LlamaConfig:
     n_layers: int = 32
     n_heads: int = 32
     n_kv_heads: int | None = None
-    vocab_size: int = 201088  # TODO: derive from tokenizer/checkpoint (current is dummy)
+    vocab_size: int = 128256  # TODO: derive from tokenizer/checkpoint (current is dummy)
 
     multiple_of: int = 256
     ffn_dim_multiplier: float | None = None
