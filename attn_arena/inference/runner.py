@@ -1,13 +1,25 @@
 from __future__ import annotations
 
+import math
 import time
-from dataclasses import dataclass
-from typing import cast
+from dataclasses import dataclass, field
+from typing import Literal, cast
 
 import torch
+import torch.nn as nn
 
 from attn_arena.attention.base import KVCache
 from attn_arena.models.base import ModelBackbone
+
+WeightsMode = Literal["native", "adapted", "synthetic"]
+SyntheticInitPolicy = Literal[
+    "xavier_uniform",
+    "xavier_normal",
+    "kaiming_uniform",
+    "kaiming_normal",
+    "uniform",
+    "normal",
+]
 
 
 @dataclass(frozen=True)
@@ -16,6 +28,16 @@ class SyntheticTokenSpec:
 
     seed: int = 0
     offset: int = 0
+
+
+@dataclass(frozen=True)
+class SyntheticInitConfig:
+    """Configuration for deterministic synthetic parameter initialization."""
+
+    policy: SyntheticInitPolicy = "xavier_uniform"
+    seed: int = 0
+    uniform_bound: float = 0.02
+    normal_std: float = 0.02
 
 
 @dataclass(frozen=True)
@@ -31,12 +53,29 @@ class BenchmarkWorkload:
 
 @dataclass(frozen=True)
 class BenchmarkRunConfig:
-    """Execution controls for stable timing measurements."""
+    """Execution controls and weight-mode semantics for benchmark runs."""
 
     warmup_iters: int = 1
     timed_iters: int = 3
     dtype: torch.dtype = torch.float32
     device: str = "cpu"
+    weights_mode: WeightsMode = "synthetic"
+    synthetic_init: SyntheticInitConfig = field(default_factory=SyntheticInitConfig)
+    checkpoint_source: str | None = None
+
+
+@dataclass(frozen=True)
+class BenchmarkMetadata:
+    """Run metadata required for reproducible benchmark reporting."""
+
+    model_name: str
+    attention_name: str
+    weights_mode: WeightsMode
+    device: str
+    dtype: str
+    synthetic_init_policy: SyntheticInitPolicy | None
+    synthetic_init_seed: int | None
+    checkpoint_source: str | None
 
 
 @dataclass(frozen=True)
@@ -57,6 +96,7 @@ class StageMetrics:
 class InferenceBenchmarkResult:
     """Aggregated metrics for a prefill+decode benchmark run."""
 
+    metadata: BenchmarkMetadata
     workload: BenchmarkWorkload
     prefill: StageMetrics
     decode: StageMetrics
@@ -78,6 +118,104 @@ DEFAULT_BENCHMARK_RUN_CONFIG = BenchmarkRunConfig()
 DEFAULT_SYNTHETIC_TOKEN_SPEC = SyntheticTokenSpec()
 
 
+def _fan_in_fan_out(tensor: torch.Tensor) -> tuple[int, int]:
+    if tensor.ndim < 2:
+        raise ValueError("Fan-in/fan-out requires tensor with at least 2 dimensions.")
+    num_input_fmaps = tensor.shape[1]
+    num_output_fmaps = tensor.shape[0]
+    receptive_field_size = 1
+    if tensor.ndim > 2:
+        receptive_field_size = math.prod(tensor.shape[2:])
+    fan_in = int(num_input_fmaps * receptive_field_size)
+    fan_out = int(num_output_fmaps * receptive_field_size)
+    return fan_in, fan_out
+
+
+def _generator_key(device: torch.device) -> str:
+    index = device.index if device.index is not None else -1
+    return f"{device.type}:{index}"
+
+
+def _generator_for_device(
+    *,
+    device: torch.device,
+    seed: int,
+    generators: dict[str, torch.Generator],
+) -> torch.Generator:
+    key = _generator_key(device)
+    if key not in generators:
+        generators[key] = torch.Generator(device=str(device))
+        generators[key].manual_seed(seed)
+    return generators[key]
+
+
+def _initialize_matrix_parameter(
+    parameter: torch.Tensor,
+    *,
+    config: SyntheticInitConfig,
+    generator: torch.Generator,
+) -> None:
+    fan_in, fan_out = _fan_in_fan_out(parameter)
+    if fan_in <= 0 or fan_out <= 0:
+        raise ValueError("fan_in/fan_out must be positive for initialization.")
+
+    if config.policy == "xavier_uniform":
+        bound = math.sqrt(6.0 / (fan_in + fan_out))
+        parameter.uniform_(-bound, bound, generator=generator)
+        return
+    if config.policy == "xavier_normal":
+        std = math.sqrt(2.0 / (fan_in + fan_out))
+        parameter.normal_(0.0, std, generator=generator)
+        return
+    if config.policy == "kaiming_uniform":
+        bound = math.sqrt(3.0 / fan_in)
+        parameter.uniform_(-bound, bound, generator=generator)
+        return
+    if config.policy == "kaiming_normal":
+        std = math.sqrt(2.0 / fan_in)
+        parameter.normal_(0.0, std, generator=generator)
+        return
+    if config.policy == "uniform":
+        parameter.uniform_(-config.uniform_bound, config.uniform_bound, generator=generator)
+        return
+    if config.policy == "normal":
+        parameter.normal_(0.0, config.normal_std, generator=generator)
+        return
+
+    raise ValueError(f"Unsupported synthetic init policy: {config.policy}")
+
+
+def initialize_model_weights_for_synthetic_mode(
+    model: nn.Module,
+    *,
+    config: SyntheticInitConfig,
+) -> None:
+    """Initialize all model parameters explicitly for synthetic benchmark mode."""
+
+    generators: dict[str, torch.Generator] = {}
+    with torch.no_grad():
+        for name, parameter in model.named_parameters():
+            if parameter.ndim >= 2:
+                generator = _generator_for_device(
+                    device=parameter.device,
+                    seed=config.seed,
+                    generators=generators,
+                )
+                _initialize_matrix_parameter(
+                    parameter,
+                    config=config,
+                    generator=generator,
+                )
+                continue
+
+            if name.endswith("bias"):
+                parameter.zero_()
+            elif "norm" in name and name.endswith("weight"):
+                parameter.fill_(1.0)
+            else:
+                parameter.zero_()
+
+
 def make_synthetic_input_ids(
     *,
     batch_size: int,
@@ -86,11 +224,7 @@ def make_synthetic_input_ids(
     spec: SyntheticTokenSpec,
     device: torch.device,
 ) -> torch.LongTensor:
-    """Create deterministic synthetic token IDs for benchmarking.
-
-    Generation happens on CPU using a fixed generator for reproducibility, then
-    moves to the target device. This keeps behavior stable across CPU/GPU runs.
-    """
+    """Create deterministic synthetic token IDs for benchmarking."""
 
     if batch_size <= 0 or seq_len <= 0:
         raise ValueError("batch_size and seq_len must be > 0.")
@@ -139,13 +273,7 @@ def init_kv_caches_for_model(
     device: torch.device,
     dtype: torch.dtype,
 ) -> list[KVCache]:
-    """Initialize one KV cache per layer using the injected attention modules.
-
-    Current implementation assumes a Llama-like backbone with a `layers`
-    collection where each layer owns an `attention` module exposing
-    `init_kv_cache(...)`. This is intentionally isolated here so future model
-    backbones can add a native cache-init API without changing benchmark code.
-    """
+    """Initialize one KV cache per layer using injected attention modules."""
 
     layers = getattr(model, "layers", None)
     if layers is None:
@@ -181,6 +309,40 @@ def total_kv_cache_bytes(kv_caches: list[KVCache]) -> int:
 def _synchronize_if_needed(device: torch.device) -> None:
     if device.type == "cuda":
         torch.cuda.synchronize(device)
+
+
+def _resolve_attention_name(model: ModelBackbone) -> str:
+    layers = getattr(model, "layers", None)
+    if layers is None or len(layers) == 0:
+        return "unknown"
+    attention = getattr(layers[0], "attention", None)
+    if attention is None:
+        return "unset"
+    return str(attention.__class__.__name__)
+
+
+def _build_benchmark_metadata(
+    *,
+    model: ModelBackbone,
+    run_config: BenchmarkRunConfig,
+    device: torch.device,
+) -> BenchmarkMetadata:
+    synthetic_init_policy: SyntheticInitPolicy | None = None
+    synthetic_init_seed: int | None = None
+    if run_config.weights_mode == "synthetic":
+        synthetic_init_policy = run_config.synthetic_init.policy
+        synthetic_init_seed = run_config.synthetic_init.seed
+
+    return BenchmarkMetadata(
+        model_name=model.__class__.__name__,
+        attention_name=_resolve_attention_name(model),
+        weights_mode=run_config.weights_mode,
+        device=str(device),
+        dtype=str(run_config.dtype),
+        synthetic_init_policy=synthetic_init_policy,
+        synthetic_init_seed=synthetic_init_seed,
+        checkpoint_source=run_config.checkpoint_source,
+    )
 
 
 def _run_prefill_once(
@@ -232,19 +394,16 @@ def _run_decode_once(
             spec=SyntheticTokenSpec(seed=token_spec.seed + step, offset=token_spec.offset),
             device=device,
         )
+        position = kv_caches[0].current_seq_len()
         position_ids = build_position_ids(
             batch_size=batch_size,
             seq_len=1,
-            start_position=kv_caches[0].current_seq_len(),
+            start_position=position,
             device=device,
         )
         cache_position = cast(
             torch.LongTensor,
-            torch.tensor(
-                [kv_caches[0].current_seq_len()],
-                dtype=torch.long,
-                device=device,
-            ),
+            torch.tensor([position], dtype=torch.long, device=device),
         )
         last_logits = model.forward(
             input_ids=input_ids,
@@ -265,12 +424,7 @@ def run_prefill_decode_benchmark(
     run_config: BenchmarkRunConfig | None = None,
     token_spec: SyntheticTokenSpec | None = None,
 ) -> InferenceBenchmarkResult:
-    """Run deterministic prefill+decode benchmarking on a backbone.
-
-    This function is benchmark-first and intentionally does not depend on a
-    tokenizer. It uses synthetic tokens to exercise the inference path and KV
-    cache behavior under controlled workloads.
-    """
+    """Run deterministic prefill+decode benchmarking on a backbone."""
 
     if run_config is None:
         run_config = DEFAULT_BENCHMARK_RUN_CONFIG
@@ -289,8 +443,16 @@ def run_prefill_decode_benchmark(
         raise ValueError("run_config.warmup_iters must be >= 0.")
 
     device = torch.device(run_config.device)
-    if isinstance(model, torch.nn.Module):
+    if run_config.weights_mode == "synthetic" and not isinstance(model, nn.Module):
+        raise TypeError(
+            "Synthetic mode requires `model` to be a torch.nn.Module so parameters "
+            "can be initialized explicitly."
+        )
+
+    if isinstance(model, nn.Module):
         model = model.to(device=device, dtype=run_config.dtype)  # type: ignore[assignment]
+        if run_config.weights_mode == "synthetic":
+            initialize_model_weights_for_synthetic_mode(model, config=run_config.synthetic_init)
         model.eval()
 
     prefill_input_ids = make_synthetic_input_ids(
@@ -300,6 +462,8 @@ def run_prefill_decode_benchmark(
         spec=token_spec,
         device=device,
     )
+
+    metadata = _build_benchmark_metadata(model=model, run_config=run_config, device=device)
 
     def _single_iteration() -> tuple[float, float, int]:
         kv_caches = init_kv_caches_for_model(
@@ -334,8 +498,7 @@ def run_prefill_decode_benchmark(
             _synchronize_if_needed(device)
             decode_elapsed = time.perf_counter() - decode_start
 
-        cache_bytes = total_kv_cache_bytes(kv_caches)
-        return prefill_elapsed, decode_elapsed, cache_bytes
+        return prefill_elapsed, decode_elapsed, total_kv_cache_bytes(kv_caches)
 
     for _ in range(run_config.warmup_iters):
         _single_iteration()
@@ -361,6 +524,7 @@ def run_prefill_decode_benchmark(
     total_elapsed = prefill_metrics.elapsed_seconds + decode_metrics.elapsed_seconds
 
     return InferenceBenchmarkResult(
+        metadata=metadata,
         workload=workload,
         prefill=prefill_metrics,
         decode=decode_metrics,
