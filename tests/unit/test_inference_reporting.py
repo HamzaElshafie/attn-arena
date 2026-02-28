@@ -66,7 +66,9 @@ def test_benchmark_result_to_dict_contains_schema_and_metadata() -> None:
     assert payload["metadata"]["weights_mode"] == "synthetic"
     assert payload["metadata"]["model_name"] == "LlamaBackbone"
     assert payload["metadata"]["attention_name"] == "MultiHeadAttention"
+    assert payload["metadata"]["attention_backend"] == "sdpa"
     assert payload["metrics"]["total_tokens"] == result.total_tokens
+    assert payload["metrics"]["persistent_kv_cache_bytes"] == result.kv_cache_bytes
 
 
 def test_write_benchmark_report_json_writes_schema_payload(tmp_path: Path) -> None:
@@ -78,6 +80,7 @@ def test_write_benchmark_report_json_writes_schema_payload(tmp_path: Path) -> No
     payload = json.loads(output.read_text(encoding="utf-8"))
     assert payload["schema_version"] == BENCHMARK_REPORT_SCHEMA_VERSION
     assert payload["metadata"]["weights_mode"] == "synthetic"
+    assert payload["metadata"]["attention_backend"] == "sdpa"
 
 
 def test_write_benchmark_report_csv_writes_flat_rows(tmp_path: Path) -> None:
@@ -93,3 +96,4 @@ def test_write_benchmark_report_csv_writes_flat_rows(tmp_path: Path) -> None:
     assert row["schema_version"] == BENCHMARK_REPORT_SCHEMA_VERSION
     assert row["weights_mode"] == "synthetic"
     assert row["model_name"] == "LlamaBackbone"
+    assert row["attention_backend"] == "sdpa"

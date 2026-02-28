@@ -142,6 +142,7 @@ def test_run_prefill_decode_benchmark_smoke() -> None:
     assert result.metadata.weights_mode == "synthetic"
     assert result.metadata.model_name == "LlamaBackbone"
     assert result.metadata.attention_name == "MultiHeadAttention"
+    assert result.metadata.attention_backend == "sdpa"
     assert result.metadata.synthetic_init_policy == "xavier_uniform"
     assert result.metadata.synthetic_init_seed == 0
 
@@ -172,6 +173,7 @@ def test_run_prefill_decode_benchmark_native_metadata() -> None:
     )
 
     assert result.metadata.weights_mode == "native"
+    assert result.metadata.attention_backend == "sdpa"
     assert result.metadata.synthetic_init_policy is None
     assert result.metadata.synthetic_init_seed is None
     assert result.metadata.checkpoint_source == "meta-llama/Meta-Llama-3-8B"

@@ -13,6 +13,7 @@ from attn_arena.inference.reporting import (
     write_benchmark_report_json,
 )
 from attn_arena.inference.runner import (
+    AttentionBackend,
     BenchmarkMetadata,
     BenchmarkRunConfig,
     BenchmarkWorkload,
@@ -32,6 +33,7 @@ from attn_arena.inference.runner import (
 
 __all__ = [
     "BENCHMARK_REPORT_SCHEMA_VERSION",
+    "AttentionBackend",
     "BenchmarkMetadata",
     "BenchmarkRunConfig",
     "BenchmarkWorkload",

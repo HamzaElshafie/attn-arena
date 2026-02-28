@@ -55,6 +55,13 @@ The current implementation establishes:
 
 As the project evolves, new attention variants and model backbones are added through the same interfaces so experiments remain comparable across implementations.
 
+## In-scope experiments (v1)
+
+The current benchmark scope focuses on three inference-system experiments:
+- **Persistent KV cache bytes vs context length** (single GPU and multi-GPU tensor-parallel runs)
+- **Decode throughput vs batch size**
+- **Prefill throughput vs prompt length**
+
 
 ## Resources
 - [Hardware-Efficient Attention for Fast Decoding](https://arxiv.org/abs/2505.21487)
