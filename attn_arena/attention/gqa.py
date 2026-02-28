@@ -39,6 +39,47 @@ def _repeat_kv(
     return k_expanded, v_expanded
 
 
+def _sdpa_with_grouped_kv(
+    q: torch.Tensor,
+    k: torch.Tensor,
+    v: torch.Tensor,
+    *,
+    n_groups: int,
+    attention_mask: torch.Tensor | None,
+) -> torch.Tensor:
+    """Run SDPA for GQA using grouped-KV fast path with fallback.
+
+    Shapes:
+    - q: [B, Hq, Tq, D]
+    - k/v: [B, Hkv, Tk, D]
+    """
+
+    try:
+        return F.scaled_dot_product_attention(
+            q,
+            k,
+            v,
+            attn_mask=attention_mask,
+            dropout_p=0.0,
+            is_causal=False,
+            enable_gqa=True,
+        )
+    except TypeError:
+        k_expanded, v_expanded = _repeat_kv(
+            k.transpose(1, 2),
+            v.transpose(1, 2),
+            n_groups=n_groups,
+        )
+        return F.scaled_dot_product_attention(
+            q,
+            k_expanded.transpose(1, 2),
+            v_expanded.transpose(1, 2),
+            attn_mask=attention_mask,
+            dropout_p=0.0,
+            is_causal=False,
+        )
+
+
 @register_attention("gqa")
 class GroupedQueryAttention(nn.Module):
     capabilities = AttentionCapabilities(
@@ -103,19 +144,16 @@ class GroupedQueryAttention(nn.Module):
             k = kv[0, :, :cache_len, :, :]
             v = kv[1, :, :cache_len, :, :]
 
-        k, v = _repeat_kv(k, v, self.n_groups)
-
         q = q.transpose(1, 2)
         k = k.transpose(1, 2)
         v = v.transpose(1, 2)
 
-        attn_output = F.scaled_dot_product_attention(
+        attn_output = _sdpa_with_grouped_kv(
             q,
             k,
             v,
-            attn_mask=attention_mask,
-            dropout_p=0.0,
-            is_causal=False,
+            n_groups=self.n_groups,
+            attention_mask=attention_mask,
         )
         attn_output = attn_output.transpose(1, 2).contiguous().view(batch_size, seq_len, -1)
         return AttentionOutput(self.wo(attn_output))
@@ -144,19 +182,16 @@ class GroupedQueryAttention(nn.Module):
         cache_len = kv_cache.current_seq_len()
         k = kv[0, :, :cache_len, :, :]
         v = kv[1, :, :cache_len, :, :]
-        k, v = _repeat_kv(k, v, self.n_groups)
-
         q = q.transpose(1, 2)
         k = k.transpose(1, 2)
         v = v.transpose(1, 2)
 
-        attn_output = F.scaled_dot_product_attention(
+        attn_output = _sdpa_with_grouped_kv(
             q,
             k,
             v,
-            attn_mask=None,
-            dropout_p=0.0,
-            is_causal=False,
+            n_groups=self.n_groups,
+            attention_mask=None,
         )
         attn_output = attn_output.transpose(1, 2).contiguous().view(batch_size, seq_len, -1)
         return AttentionOutput(self.wo(attn_output))

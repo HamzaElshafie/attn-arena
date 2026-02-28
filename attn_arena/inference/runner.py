@@ -12,6 +12,7 @@ from attn_arena.attention.base import KVCache
 from attn_arena.models.base import ModelBackbone
 
 WeightsMode = Literal["native", "adapted", "synthetic"]
+AttentionBackend = Literal["sdpa", "flash", "eager"]
 SyntheticInitPolicy = Literal[
     "xavier_uniform",
     "xavier_normal",
@@ -59,6 +60,7 @@ class BenchmarkRunConfig:
     timed_iters: int = 3
     dtype: torch.dtype = torch.float32
     device: str = "cpu"
+    attention_backend: AttentionBackend = "sdpa"
     weights_mode: WeightsMode = "synthetic"
     synthetic_init: SyntheticInitConfig = field(default_factory=SyntheticInitConfig)
     checkpoint_source: str | None = None
@@ -70,6 +72,7 @@ class BenchmarkMetadata:
 
     model_name: str
     attention_name: str
+    attention_backend: AttentionBackend
     weights_mode: WeightsMode
     device: str
     dtype: str
@@ -102,6 +105,12 @@ class InferenceBenchmarkResult:
     decode: StageMetrics
     total_elapsed_seconds: float
     kv_cache_bytes: int
+
+    @property
+    def persistent_kv_cache_bytes(self) -> int:
+        """Persistent KV-cache payload size in bytes across all layer caches."""
+
+        return self.kv_cache_bytes
 
     @property
     def total_tokens(self) -> int:
@@ -336,6 +345,7 @@ def _build_benchmark_metadata(
     return BenchmarkMetadata(
         model_name=model.__class__.__name__,
         attention_name=_resolve_attention_name(model),
+        attention_backend=run_config.attention_backend,
         weights_mode=run_config.weights_mode,
         device=str(device),
         dtype=str(run_config.dtype),

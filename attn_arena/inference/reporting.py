@@ -19,6 +19,7 @@ def benchmark_result_to_dict(result: InferenceBenchmarkResult) -> dict[str, Any]
         "metadata": {
             "model_name": result.metadata.model_name,
             "attention_name": result.metadata.attention_name,
+            "attention_backend": result.metadata.attention_backend,
             "weights_mode": result.metadata.weights_mode,
             "device": result.metadata.device,
             "dtype": result.metadata.dtype,
@@ -44,6 +45,7 @@ def benchmark_result_to_dict(result: InferenceBenchmarkResult) -> dict[str, Any]
             "total_tokens": result.total_tokens,
             "total_tokens_per_second": result.total_tokens_per_second,
             "kv_cache_bytes": result.kv_cache_bytes,
+            "persistent_kv_cache_bytes": result.persistent_kv_cache_bytes,
         },
     }
 
@@ -77,6 +79,7 @@ def write_benchmark_report_csv(
         "schema_version",
         "model_name",
         "attention_name",
+        "attention_backend",
         "weights_mode",
         "device",
         "dtype",
@@ -98,6 +101,7 @@ def write_benchmark_report_csv(
         "total_tokens",
         "total_tokens_per_second",
         "kv_cache_bytes",
+        "persistent_kv_cache_bytes",
     ]
 
     with destination.open("w", encoding="utf-8", newline="") as file:
@@ -112,6 +116,7 @@ def write_benchmark_report_csv(
                     "schema_version": row["schema_version"],
                     "model_name": metadata["model_name"],
                     "attention_name": metadata["attention_name"],
+                    "attention_backend": metadata["attention_backend"],
                     "weights_mode": metadata["weights_mode"],
                     "device": metadata["device"],
                     "dtype": metadata["dtype"],
@@ -133,6 +138,7 @@ def write_benchmark_report_csv(
                     "total_tokens": metrics["total_tokens"],
                     "total_tokens_per_second": metrics["total_tokens_per_second"],
                     "kv_cache_bytes": metrics["kv_cache_bytes"],
+                    "persistent_kv_cache_bytes": metrics["persistent_kv_cache_bytes"],
                 }
             )
 
